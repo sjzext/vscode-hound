@@ -11,7 +11,7 @@
         "Other"
     ],
     "activationEvents": [
-        "onCommand:extension.sayHello"
+        "onCommand:extension.houndSearch"
     ],
     "main": "./out/extension",
     "contributes": {
@@ -24,6 +24,10 @@
                     "type": "string",
                     "description": "Base url including port for hound instance"
                 },
+                "hound.repoPattern": {
+                    "type": "string",
+                    "default": "git@github.com:${namespace}/${repo}.git"
+                },
                 "hound.localRepoRoots": {
                     "type": "array",
                     "default": [],
@@ -31,15 +35,53 @@
                         "type": "string"
                     }
                 },
-                "hound.projectBaseUrl": {
-                    "type": "string"
+                "hound.launchers": {
+                    "type": "array",
+                    "default": [
+                        {
+                            "name": "VS Code",
+                            "matchers": [
+                                {
+                                    "containsFile": "package.json"
+                                }
+                            ],
+                            "launch": "code ${folder} -g '${folder}/${fileName}:${lineNumber}'"
+                        }
+                    ],
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": "string",
+                            "matchers": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "containsFile": {
+                                            "type": [
+                                                "string",
+                                                null
+                                            ]
+                                        }
+                                    }
+                                }
+                            },
+                            "launch": {
+                                "type": "string"
+                            }
+                        }
+                    }
                 }
             }
         },
         "commands": [
             {
-                "command": "extension.sayHello",
-                "title": "Hello World"
+                "command": "extension.houndSearch",
+                "title": "Hound Search"
+            },
+            {
+                "command": "extension.refreshLocalProjects",
+                "title": "Hound Refresh Local Projects"
             }
         ]
     },
@@ -55,5 +97,8 @@
         "vscode": "^1.1.5",
         "@types/node": "^7.0.43",
         "@types/mocha": "^2.2.42"
+    },
+    "dependencies": {
+        "git-clone": "^0.1.0"
     }
 }

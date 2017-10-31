@@ -1,69 +1,198 @@
 'use strict';
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
+import { exec } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
-import * as https from 'https';
-import * as http from 'http';
-import { URL } from 'url';
+import { fetchResults } from './api';
+import { clone, collectLocalRepos, RepoInfo } from './repos';
+import { ResultInfo } from './ResultInfo';
 
-function doit(searchText: string): Promise<void> {
-    const baseUrl = vscode.workspace.getConfiguration("").get("hound.url");
-    console.error(JSON.stringify(baseUrl));
-    // vscode.window.showInformationMessage(baseUrl);
-    const url = new URL(`${baseUrl}/api/v1/search?rng=0:100&repos=*&i=nope&q=${searchText}`);
-    console.error(url.protocol);
-    const fetcher: any = url.protocol === 'https:' ? https.get : http.get;
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-    
-    return new Promise((resolve, reject) => {
-        console.error(url.toString());
-        fetcher(url.toString(), (response) => {
-            let body = '';
-            response.on('data', (data) => body += data);
-            response.on('end', () => {
-                console.error(body);
-                const parsed = JSON.parse(body),
-                results = parsed.Results;
-                const out = [];
-                Object.keys(results).forEach((projectName) => {
-                    results[projectName].Matches.forEach(({Filename, Matches}) => {
-                        Matches.forEach(({After, Before, Line, LineNumber}) => {
-                            out.push({
-                                label: `${projectName} - ${Filename}: ${LineNumber}`,
-                                description: Line,
-                                details: 'derp'
-                            });
-                        });
-                    })
-                });
-                return vscode.window.showQuickPick(out);
-            });
-        });
-    
-    });
+let localReposPromise: Promise<RepoInfo[]>;
 
+interface LauncherConfig {
+    name: string;
+    launch: string;
+    matchers: { containsFile?: string }[]
 }
 
+function launcherMatches(dir: string, result: ResultInfo, config: LauncherConfig) {
+    for (let i = 0; i < config.matchers.length; i++) {
+        let matcher = config.matchers[i];
+        if (matcher.containsFile !== undefined && matcher.containsFile !== null) {
+            if (fs.existsSync(path.join(dir, matcher.containsFile))) {
+                return true;
+            }
+        }
+        // TODO other matchers
+    }
+    return false;
+}
 
-function processSearch(text: string): Thenable<void> {
-   return doit(text);
+const PLACEHOLDER_FOLDER_RE = /\${folder}/g,
+    PLACEHOLDER_FILENAME_RE = /\${fileName}/g,
+    PLACEHOLDER_LINENUMBER_RE = /\${lineNumber}/g;
+
+function runLauncher(launchCmd: string, dir: string, fileName: string, lineNumber: number): Thenable<void> {
+    exec(
+        launchCmd
+            .replace(PLACEHOLDER_FOLDER_RE, dir)
+            .replace(PLACEHOLDER_FILENAME_RE, fileName)
+            .replace(PLACEHOLDER_LINENUMBER_RE, lineNumber + '')
+    );
+    return Promise.resolve();
+}
+
+function openResult(dir: string, result: ResultInfo): Thenable<void> {
+    const launchers = getConfig().get('launchers') as LauncherConfig[],
+        applicableLaunchers = launchers.filter(
+            (launcher) => launcherMatches(dir, result, launcher)
+        );
+    if (applicableLaunchers.length === 0) {
+        vscode.window.showErrorMessage('No applicable launchers found');
+    } else if (applicableLaunchers.length === 1) {
+        return runLauncher(applicableLaunchers[0].launch, dir, result.fileName, result.lineNumber);
+    } else {
+        vscode.window.showQuickPick(
+            launchers.map((launcher) => ({ label: launcher.name, description: launcher.name, launcher }))
+        ).then(
+            (selection) => {
+                if (selection !== undefined) {
+                    return runLauncher(selection.launcher.launch, dir, result.fileName, result.lineNumber);
+                }
+            }
+        );
+    }
+
+}
+const PLACEHOLDER_NAMESPACE_RE = /\${namespace}/g,
+    PLACEHOLDER_REPO_RE = /\${repo}/g;
+
+function processSearch(baseUrl: string, searchText: string, repoPattern: string, localRepoRoots: string[]): Thenable<void> {
+    return selectResult(baseUrl, searchText).then(
+        (result) => {
+            if (result === undefined) {
+                return Promise.resolve();
+            } else {
+                let selectedFolderPromise: Promise<string>;
+
+                const selectedLocalRepo = localReposPromise.then((localRepos) => {
+                    const matchingLocalRepos = findLocalRepos(localRepos, result.name);
+                    if (matchingLocalRepos.length === 0) {
+                        const cloneAddress = repoPattern
+                            .replace(PLACEHOLDER_NAMESPACE_RE, result.namespace)
+                            .replace(PLACEHOLDER_REPO_RE, result.name);
+
+                        let rootFolderPromise: Thenable<string | undefined>;
+                        if (localRepoRoots.length === 1) {
+                            rootFolderPromise = confirm(`Select to clone ${result.name} to ${localRepoRoots[0]}`).then(
+                                (confirmed) => confirmed ? localRepoRoots[0] : undefined
+                            );
+                        } else {
+                            rootFolderPromise = vscode.window.showQuickPick(
+                                localRepoRoots.map((repoDir) => ({
+                                    label: repoDir,
+                                    description: '( Clone here )',
+                                    repoDir
+                                }))
+                            ).then(
+                                (selection) => selection === undefined ? undefined : selection.repoDir
+                                );
+                        }
+                        rootFolderPromise.then((root) => {
+                            if (root === undefined) {
+                                return Promise.resolve(undefined);
+                            } else {
+                                return clone(root, cloneAddress).then(() => {
+                                    const absPath = `${root}/${result.name}`;
+                                    localReposPromise = Promise.resolve(localRepos.concat([{ absPath, name: result.name, repo: cloneAddress }]));
+                                    return openResult(absPath, result)
+                                });
+                            }
+                        });
+                    } else if (matchingLocalRepos.length === 1) {
+                        return openResult(matchingLocalRepos[0].absPath, result);
+                    } else {
+                        return vscode.window.showQuickPick(
+                            matchingLocalRepos.map(
+                                (repoInfo) => Object.assign(
+                                    {},
+                                    repoInfo,
+                                    {
+                                        label: repoInfo.absPath,
+                                        description: '( Open here )'
+                                    }
+                                )
+                            ),
+                            { placeHolder: 'Select the local repository to open' }
+                        ).then((selection) => {
+                            if (selection === undefined) {
+                                return Promise.resolve();
+                            } else {
+                                return openResult(selection.absPath, result);
+                            }
+                        });
+                    }
+                });
+            }
+        }
+    );
+}
+
+function getConfig() {
+    return vscode.workspace.getConfiguration("hound");
+}
+
+function getLocalRepoRoots() {
+    return getConfig().get('localRepoRoots') as string[];
+}
+
+export function refreshLocalProjects() {
+    localReposPromise = collectLocalRepos(getLocalRepoRoots());
+    return localReposPromise;
 }
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-
-    const disposable = vscode.commands.registerCommand('extension.sayHello', () => {
+    const config = getConfig(),
+        url = config.get('url') as string,
+        repoPattern = config.get('repoPattern') as string;
+    refreshLocalProjects();
+    const searchDisposable = vscode.commands.registerCommand('extension.houndSearch', () => {
         // The code you place here will be executed every time your command is executed
-        return vscode.window.showInputBox({prompt: "Enter a search term regex"}).then(
-            (inputString) => inputString === undefined ? Promise.resolve() : processSearch(inputString),
+        return vscode.window.showInputBox({ prompt: "Enter a search term regex" }).then(
+            (inputString) => inputString === undefined ? Promise.resolve() : processSearch(url, inputString, repoPattern, getLocalRepoRoots()),
             (error) => vscode.window.showErrorMessage(`Failed to hound search, reason: ${error}`)
-        ) 
+        );
     });
-    context.subscriptions.push(disposable);
+    // not the best spot to register this
+    const refreshDisposable = vscode.commands.registerCommand('extension.refreshLocalProjects', () => {
+        refreshLocalProjects().then(() => vscode.window.showInformationMessage('Refresh Complete'));
+    });
+    context.subscriptions.push(searchDisposable);
+    context.subscriptions.push(refreshDisposable);
 }
 
 // this method is called when your extension is deactivated
 export function deactivate() {
+}
+
+function selectResult(baseUrl: string, searchText: string): Promise<ResultInfo | undefined> {
+    return fetchResults(baseUrl, searchText)
+        .then(vscode.window.showQuickPick);
+}
+
+function findLocalRepos(localRepos: RepoInfo[], repoName: string): RepoInfo[] {
+    return localRepos.filter((localRepo) => localRepo.name === repoName);
+}
+
+function simplePickItem(value: string): vscode.QuickPickItem & { value: string } {
+    return { label: value, description: value, value };
+}
+
+function confirm(text: string): Thenable<boolean> {
+    return vscode.window.showQuickPick([text]).then((selection) => selection === text);
 }
