@@ -1,6 +1,7 @@
 'use strict';
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
+import { launcherMatches, runLauncher, LauncherConfig } from './launch';
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,39 +12,6 @@ import { clone, collectLocalRepos, RepoInfo } from './repos';
 import { ResultInfo } from './ResultInfo';
 
 let localReposPromise: Promise<RepoInfo[]>;
-
-interface LauncherConfig {
-    name: string;
-    launch: string;
-    matchers: { containsFile?: string }[]
-}
-
-function launcherMatches(dir: string, result: ResultInfo, config: LauncherConfig) {
-    for (let i = 0; i < config.matchers.length; i++) {
-        let matcher = config.matchers[i];
-        if (matcher.containsFile !== undefined && matcher.containsFile !== null) {
-            if (fs.existsSync(path.join(dir, matcher.containsFile))) {
-                return true;
-            }
-        }
-        // TODO other matchers
-    }
-    return false;
-}
-
-const PLACEHOLDER_FOLDER_RE = /\${folder}/g,
-    PLACEHOLDER_FILENAME_RE = /\${fileName}/g,
-    PLACEHOLDER_LINENUMBER_RE = /\${lineNumber}/g;
-
-function runLauncher(launchCmd: string, dir: string, fileName: string, lineNumber: number): Thenable<void> {
-    exec(
-        launchCmd
-            .replace(PLACEHOLDER_FOLDER_RE, dir)
-            .replace(PLACEHOLDER_FILENAME_RE, fileName)
-            .replace(PLACEHOLDER_LINENUMBER_RE, lineNumber + '')
-    );
-    return Promise.resolve();
-}
 
 function openResult(dir: string, result: ResultInfo): Thenable<void> {
     const launchers = getConfig().get('launchers') as LauncherConfig[],
