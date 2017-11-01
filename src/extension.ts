@@ -1,13 +1,10 @@
 'use strict';
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
-import { launcherMatches, runLauncher, LauncherConfig } from './launch';
-import { exec } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { fetchResults } from './api';
+import { LauncherConfig, launcherMatches, runLauncher } from './launch';
 import { clone, collectLocalRepos, RepoInfo } from './repos';
 import { ResultInfo } from './ResultInfo';
 
@@ -31,10 +28,10 @@ function openResult(dir: string, result: ResultInfo): Thenable<void> {
                     return runLauncher(selection.launcher.launch, dir, result.fileName, result.lineNumber);
                 }
             }
-        );
+            );
     }
-
 }
+
 const PLACEHOLDER_NAMESPACE_RE = /\${namespace}/g,
     PLACEHOLDER_REPO_RE = /\${repo}/g;
 
@@ -122,6 +119,14 @@ export function refreshLocalProjects() {
     return localReposPromise;
 }
 
+const scheme = 'houndPreview';
+
+class Provider implements vscode.TextDocumentContentProvider {
+    provideTextDocumentContent(uri: vscode.Uri, token: vscode.CancellationToken): vscode.ProviderResult<string> {
+        return uri.query;
+    }
+}
+
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
@@ -140,17 +145,58 @@ export function activate(context: vscode.ExtensionContext) {
     const refreshDisposable = vscode.commands.registerCommand('extension.refreshLocalProjects', () => {
         refreshLocalProjects().then(() => vscode.window.showInformationMessage('Refresh Complete'));
     });
-    context.subscriptions.push(searchDisposable);
-    context.subscriptions.push(refreshDisposable);
+
+    const providerRegistration = vscode.workspace.registerTextDocumentContentProvider(scheme, new Provider());
+
+    context.subscriptions.push(
+        searchDisposable,
+        refreshDisposable,
+        providerRegistration
+    );
+
 }
 
 // this method is called when your extension is deactivated
 export function deactivate() {
 }
 
+
+
 function selectResult(baseUrl: string, searchText: string): Promise<ResultInfo | undefined> {
     return fetchResults(baseUrl, searchText)
-        .then(vscode.window.showQuickPick);
+        .then((selections) => {
+
+            const channel = vscode.window.createOutputChannel('Hound Results Preview');
+            channel.appendLine('Make a selection');
+            channel.show(true);
+
+            let lastSelection = undefined;
+            return vscode.window.showQuickPick(selections, {
+
+                onDidSelectItem: (selection: any) => {
+                    if (lastSelection !== selection) {
+                        const namespaceString = selection.namespace === undefined ? '' : selection.namespace,
+                            nameWithNamespace = namespaceString + (namespaceString.length === 0 ? '' : ' / ') + selection.name,
+                            title = nameWithNamespace + ' - ' + selection.fileName;
+                        channel.clear();
+                        channel.appendLine(title);
+                        channel.appendLine('-'.repeat(title.length));
+                        channel.appendLine(selection.before.join('\r\n'));
+
+                        channel.appendLine('>>');
+                        channel.appendLine(selection.line);
+                        channel.appendLine('>>');
+                        channel.appendLine(selection.after.join('\r\n'));
+                        lastSelection = selection;
+                    }
+                }
+            }).then((selection) => {
+                channel.hide();
+                channel.dispose();
+                return selection;
+            });
+
+        });
 }
 
 function findLocalRepos(localRepos: RepoInfo[], repoName: string): RepoInfo[] {

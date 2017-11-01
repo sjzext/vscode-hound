@@ -13,6 +13,7 @@ export interface LauncherConfig {
 export interface MatcherConfig {
     containsFile?: string;
     nameMatchesRegex?: string;
+    hasExtension?: string;
 }
 
 const PLACEHOLDER_FOLDER_RE = /\${folder}/g,
@@ -63,5 +64,8 @@ const MATCHERS = {
     nameMatchesRegex: (nameRe: string) => {
         const re = new RegExp(nameRe);
         return (dir: string, result: ResultInfo) => re.exec(result.name) !== null;
+    },
+    hasExtension: (extension: string) => {
+        return (dir: string, result: ResultInfo) => result.fileName.endsWith(`.${extension}`);
     }
 }

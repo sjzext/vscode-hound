@@ -58,10 +58,24 @@
                                     "type": "object",
                                     "anyOf": [
                                         { "required": [ "containsFile" ] },
-                                        { "required": [ "nameMatchesRegex" ] }
+                                        { "required": [ "nameMatchesRegex" ] },
+                                        { "required": [ "hasExtension" ]}
                                     ],
+                                    
                                     "properties": {
+                                        "hasExtension": {
+                                            "type": [
+                                                "string",
+                                                null
+                                            ]
+                                        },
                                         "containsFile": {
+                                            "type": [
+                                                "string",
+                                                null
+                                            ]
+                                        },
+                                        "nameMatchesRegex": {
                                             "type": [
                                                 "string",
                                                 null
