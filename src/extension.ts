@@ -67,7 +67,7 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
                                 (selection) => selection === undefined ? undefined : selection.repoDir
                                 );
                         }
-                        rootFolderPromise.then((root) => {
+                        return rootFolderPromise.then((root) => {
                             if (root === undefined) {
                                 return Promise.resolve(undefined);
                             } else {
