@@ -3,7 +3,7 @@
     "displayName": "hound",
     "description": "",
     "version": "0.0.1",
-    "publisher": "x",
+    "publisher": "sjzext",
     "engines": {
         "vscode": "^1.17.0"
     },

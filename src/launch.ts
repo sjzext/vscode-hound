@@ -46,6 +46,7 @@ export function launcherMatches(dir: string, result: ResultInfo, config: Launche
                 }
             }
         }
+        return false;
     }
 }
 
