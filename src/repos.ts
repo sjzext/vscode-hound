@@ -21,7 +21,7 @@ export function collectLocalRepos(repoRoots: string[]): Promise<RepoInfo[]> {
 
 export function clone(cwd: string, cloneAddress: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const child = exec(
+        exec(
             `git clone ${cloneAddress}`,
             { cwd },
             (error, stdout, stderr) => {

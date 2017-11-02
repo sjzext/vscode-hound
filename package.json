@@ -1,7 +1,7 @@
 {
-    "name": "hound",
-    "displayName": "hound",
-    "description": "",
+    "name": "hound-search",
+    "displayName": "Hound Search",
+    "description": "Search and launch for hound",
     "version": "0.0.1",
     "publisher": "sjzext",
     "engines": {
@@ -9,6 +9,11 @@
     },
     "categories": [
         "Other"
+    ],
+    "keywords": [
+        "hound",
+        "search",
+        "git"
     ],
     "activationEvents": [
         "onCommand:extension.houndSearch",
@@ -112,8 +117,5 @@
         "vscode": "^1.1.5",
         "@types/node": "^7.0.43",
         "@types/mocha": "^2.2.42"
-    },
-    "dependencies": {
-        "git-clone": "^0.1.0"
     }
 }

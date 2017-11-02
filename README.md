@@ -9,6 +9,15 @@ Provides a [Hound](https://github.com/etsy/hound) search client that on selectio
 * prompts to clone repos that do not exist locally
 * launches search results in the program of your choice
 
+## Available Commands
+
+* **Hound: Search:** Launch the searcher
+* **Hound: Refresh Local Projects:** Rescan the set of local repo roots
+
+## Installation
+
+Search for 'Hound Search' in the Visual Studio Code's extension manager
+
 ## Requirements
 
 * Local installation of git

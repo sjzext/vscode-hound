@@ -4,11 +4,12 @@
 import * as vscode from 'vscode';
 
 import { fetchResults, ResultInfoSelections } from './api';
+import { getConfig, getOrPromptConfig } from './config';
 import { LauncherConfig, launcherMatches, runLauncher } from './launch';
 import { openResultPreview } from './preview';
 import { clone, collectLocalRepos, RepoInfo } from './repos';
 import { ResultInfo } from './ResultInfo';
-
+import { confirm } from './util';
 
 function openResult(dir: string, result: ResultInfo, launchers: LauncherConfig[]): Thenable<void> {
     const applicableLaunchers = launchers.filter(
@@ -33,8 +34,6 @@ function openResult(dir: string, result: ResultInfo, launchers: LauncherConfig[]
 
 const PLACEHOLDER_NAMESPACE_RE = /\${namespace}/g,
     PLACEHOLDER_REPO_RE = /\${repo}/g;
-
-
 
 function processSearch(baseUrl: string, searchText: string, repoPattern: string, localReposPromise: Promise<RepoInfo[]>, localRepoRoots: string[]): Thenable<{ absPath: string, result: ResultInfo } | undefined> {
     return selectResult(baseUrl, searchText).then(
@@ -107,37 +106,7 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
     );
 }
 
-const CONFIG_GROUP = 'hound';
-function getOrPromptConfig<T>(name: string, prompt: string, storageTransform: (inputString: string) => T = (x) => x as any): Thenable<T> {
 
-    const savedConfig = getConfig<T>(name);
-    if (savedConfig == undefined) {
-        return vscode.window.showInputBox({ prompt }).then(
-            (userInput) => {
-                if (userInput === undefined || userInput.length === 0) {
-                    return Promise.reject('Config not entered');
-                } else {
-                    const transformedConfig = storageTransform(userInput);
-
-                    return vscode.workspace.getConfiguration().update(
-                        `${CONFIG_GROUP}.${name}`,
-                        transformedConfig,
-                        vscode.ConfigurationTarget.Global
-                    ).then(() => transformedConfig);
-                }
-            }
-        );
-    } else {
-        return Promise.resolve(savedConfig);
-    }
-}
-
-function getConfigGroup() {
-    return vscode.workspace.getConfiguration(CONFIG_GROUP);
-}
-function getConfig<T>(name: string): T {
-    return getConfigGroup().get(name) as T;
-}
 
 function getExtensionConfig(): Promise<any> {
 
@@ -162,6 +131,24 @@ function getExtensionConfig(): Promise<any> {
             };
         }
         );
+}
+
+function selectResult(baseUrl: string, searchText: string): Promise<ResultInfoSelections | undefined> {
+    return fetchResults(baseUrl, searchText)
+        .then((selections: ResultInfoSelections[]) => {
+            const resultsPreview = openResultPreview();
+            return vscode.window.showQuickPick<ResultInfoSelections>(selections, {
+                placeHolder: 'Navigate to preview results, or select to launch',
+                onDidSelectItem: (resultInfo) => resultsPreview.setSelection(resultInfo as any)
+            }).then((selection) => {
+                resultsPreview.terminate();
+                return selection;
+            });
+        });
+}
+
+function findLocalRepos(localRepos: RepoInfo[], repoName: string): RepoInfo[] {
+    return localRepos.filter((localRepo) => localRepo.name === repoName);
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -205,10 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     }
                 );
-            }).then(
-                null,
-                (error) => vscode.window.showErrorMessage(error)
-                );
+            }).catch(vscode.window.showErrorMessage);
         }),
         vscode.commands.registerCommand('extension.refreshLocalProjects', () => {
             refreshLocalProjects().then(() => vscode.window.showInformationMessage('Refresh Complete'));
@@ -217,32 +201,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 }
 
-// this method is called when your extension is deactivated
 export function deactivate() {
-}
-
-function selectResult(baseUrl: string, searchText: string): Promise<ResultInfoSelections | undefined> {
-    return fetchResults(baseUrl, searchText)
-        .then((selections: ResultInfoSelections[]) => {
-            const resultsPreview = openResultPreview();
-            return vscode.window.showQuickPick<ResultInfoSelections>(selections, {
-                placeHolder: 'Navigate to preview results, or select to launch',
-                onDidSelectItem: (resultInfo) => resultsPreview.setSelection(resultInfo as any)
-            }).then((selection) => {
-                resultsPreview.terminate();
-                return selection;
-            });
-        });
-}
-
-function findLocalRepos(localRepos: RepoInfo[], repoName: string): RepoInfo[] {
-    return localRepos.filter((localRepo) => localRepo.name === repoName);
-}
-
-function simplePickItem(value: string): vscode.QuickPickItem & { value: string } {
-    return { label: value, description: value, value };
-}
-
-function confirm(text: string): Thenable<boolean> {
-    return vscode.window.showQuickPick([text]).then((selection) => selection === text);
 }
