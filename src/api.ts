@@ -4,22 +4,19 @@ import { ResultInfo } from './ResultInfo';
 
 const repoNamespaceRe = /([^\s]*)\s*\/\s*([^\s]*)/;
 
-interface MatchDetails {
-    before: string;
-    line: string;
-    after: string;
-    fileNameShort: string;
+export interface ResultInfoSelections extends ResultInfo {
+    label: string;
+    description: string;
 }
 
 
-
-export function fetchResults(baseUrl: string, searchText: string): Promise<(ResultInfo & { label: string; description: string; })[]> {
+export function fetchResults(baseUrl: string, searchText: string): Promise<ResultInfoSelections[]> {
     return getTextResult(`${baseUrl}/api/v1/search?rng=0:100&repos=*&i=nope&q=${searchText}`).then(
         (body) => {
             const parsed = JSON.parse(body),
                 results = parsed.Results;
                 //fixme - types
-            const out: (ResultInfo & { label: string; description: string; } & MatchDetails)[] = [];
+            const out: ResultInfoSelections[] = [];
             Object.keys(results).forEach((namespacedProject) => {
                 const repoNamespaceMatch = repoNamespaceRe.exec(namespacedProject);
                 if (repoNamespaceMatch !== null) {
@@ -33,13 +30,13 @@ export function fetchResults(baseUrl: string, searchText: string): Promise<(Resu
                             out.push({
                                 label: `${repoName} - ${fileNameShort}: ${LineNumber}`,
                                 description: Line,
-                                name: repoName,
-                                namespace: namespace,
+                                repoName: repoName,
+                                repoNamespace: namespace,
                                 fileName: Filename,
                                 fileNameShort,
                                 line: Line,
-                                before: Before,
-                                after: After,
+                                before: Before.join('\r\n'),
+                                after: After.join('\r\n'),
                                 lineNumber: LineNumber
                             });
                         });

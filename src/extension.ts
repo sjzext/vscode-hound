@@ -3,25 +3,24 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-import { fetchResults } from './api';
+import { fetchResults, ResultInfoSelections } from './api';
 import { LauncherConfig, launcherMatches, runLauncher } from './launch';
+import { openResultPreview } from './preview';
 import { clone, collectLocalRepos, RepoInfo } from './repos';
 import { ResultInfo } from './ResultInfo';
 
-let localReposPromise: Promise<RepoInfo[]>;
 
-function openResult(dir: string, result: ResultInfo): Thenable<void> {
-    const launchers = getConfig().get('launchers') as LauncherConfig[],
-        applicableLaunchers = launchers.filter(
-            (launcher) => launcherMatches(dir, result, launcher)
-        );
+function openResult(dir: string, result: ResultInfo, launchers: LauncherConfig[]): Thenable<void> {
+    const applicableLaunchers = launchers.filter(
+        (launcher) => launcherMatches(dir, result, launcher)
+    );
     if (applicableLaunchers.length === 0) {
-        vscode.window.showErrorMessage('No applicable launchers found');
+        return Promise.reject('No applicable launchers found');
     } else if (applicableLaunchers.length === 1) {
         return runLauncher(applicableLaunchers[0].launch, dir, result.fileName, result.lineNumber);
     } else {
         vscode.window.showQuickPick(
-            launchers.map((launcher) => ({ label: launcher.name, description: launcher.name, launcher }))
+            launchers.map((launcher) => ({ label: launcher.name, description: '( Use launcher )', launcher }))
         ).then(
             (selection) => {
                 if (selection !== undefined) {
@@ -35,24 +34,26 @@ function openResult(dir: string, result: ResultInfo): Thenable<void> {
 const PLACEHOLDER_NAMESPACE_RE = /\${namespace}/g,
     PLACEHOLDER_REPO_RE = /\${repo}/g;
 
-function processSearch(baseUrl: string, searchText: string, repoPattern: string, localRepoRoots: string[]): Thenable<void> {
+
+
+function processSearch(baseUrl: string, searchText: string, repoPattern: string, localReposPromise: Promise<RepoInfo[]>, localRepoRoots: string[]): Thenable<{ absPath: string, result: ResultInfo } | undefined> {
     return selectResult(baseUrl, searchText).then(
         (result) => {
             if (result === undefined) {
-                return Promise.resolve();
+                return Promise.resolve(undefined);
             } else {
                 let selectedFolderPromise: Promise<string>;
 
-                const selectedLocalRepo = localReposPromise.then((localRepos) => {
-                    const matchingLocalRepos = findLocalRepos(localRepos, result.name);
+                return localReposPromise.then((localRepos) => {
+                    const matchingLocalRepos = findLocalRepos(localRepos, result.repoName);
                     if (matchingLocalRepos.length === 0) {
                         const cloneAddress = repoPattern
-                            .replace(PLACEHOLDER_NAMESPACE_RE, result.namespace)
-                            .replace(PLACEHOLDER_REPO_RE, result.name);
+                            .replace(PLACEHOLDER_NAMESPACE_RE, result.repoNamespace)
+                            .replace(PLACEHOLDER_REPO_RE, result.repoName);
 
                         let rootFolderPromise: Thenable<string | undefined>;
                         if (localRepoRoots.length === 1) {
-                            rootFolderPromise = confirm(`Select to clone ${result.name} to ${localRepoRoots[0]}`).then(
+                            rootFolderPromise = confirm(`Select to clone ${result.repoName} to ${localRepoRoots[0]}`).then(
                                 (confirmed) => confirmed ? localRepoRoots[0] : undefined
                             );
                         } else {
@@ -71,14 +72,14 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
                                 return Promise.resolve(undefined);
                             } else {
                                 return clone(root, cloneAddress).then(() => {
-                                    const absPath = `${root}/${result.name}`;
-                                    localReposPromise = Promise.resolve(localRepos.concat([{ absPath, name: result.name, repo: cloneAddress }]));
-                                    return openResult(absPath, result)
+                                    const absPath = `${root}/${result.repoName}`;
+                                    localReposPromise = Promise.resolve(localRepos.concat([{ absPath, name: result.repoName, repo: cloneAddress }]));
+                                    return Promise.resolve({ absPath, result });
                                 });
                             }
                         });
                     } else if (matchingLocalRepos.length === 1) {
-                        return openResult(matchingLocalRepos[0].absPath, result);
+                        return Promise.resolve({ absPath: matchingLocalRepos[0].absPath, result });
                     } else {
                         return vscode.window.showQuickPick(
                             matchingLocalRepos.map(
@@ -94,9 +95,9 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
                             { placeHolder: 'Select the local repository to open' }
                         ).then((selection) => {
                             if (selection === undefined) {
-                                return Promise.resolve();
+                                return Promise.resolve(undefined);
                             } else {
-                                return openResult(selection.absPath, result);
+                                return Promise.resolve({ absPath: selection.absPath, result });
                             }
                         });
                     }
@@ -106,52 +107,112 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
     );
 }
 
-function getConfig() {
-    return vscode.workspace.getConfiguration("hound");
-}
+const CONFIG_GROUP = 'hound';
+function getOrPromptConfig<T>(name: string, prompt: string, storageTransform: (inputString: string) => T = (x) => x as any): Thenable<T> {
 
-function getLocalRepoRoots() {
-    return getConfig().get('localRepoRoots') as string[];
-}
+    const savedConfig = getConfig<T>(name);
+    if (savedConfig == undefined) {
+        return vscode.window.showInputBox({ prompt }).then(
+            (userInput) => {
+                if (userInput === undefined || userInput.length === 0) {
+                    return Promise.reject('Config not entered');
+                } else {
+                    const transformedConfig = storageTransform(userInput);
 
-export function refreshLocalProjects() {
-    localReposPromise = collectLocalRepos(getLocalRepoRoots());
-    return localReposPromise;
-}
-
-const scheme = 'houndPreview';
-
-class Provider implements vscode.TextDocumentContentProvider {
-    provideTextDocumentContent(uri: vscode.Uri, token: vscode.CancellationToken): vscode.ProviderResult<string> {
-        return uri.query;
+                    return vscode.workspace.getConfiguration().update(
+                        `${CONFIG_GROUP}.${name}`,
+                        transformedConfig,
+                        vscode.ConfigurationTarget.Global
+                    ).then(() => transformedConfig);
+                }
+            }
+        );
+    } else {
+        return Promise.resolve(savedConfig);
     }
 }
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
-    const config = getConfig(),
-        url = config.get('url') as string,
-        repoPattern = config.get('repoPattern') as string;
-    refreshLocalProjects();
-    const searchDisposable = vscode.commands.registerCommand('extension.houndSearch', () => {
-        // The code you place here will be executed every time your command is executed
-        return vscode.window.showInputBox({ prompt: "Enter a search term regex" }).then(
-            (inputString) => inputString === undefined ? Promise.resolve() : processSearch(url, inputString, repoPattern, getLocalRepoRoots()),
-            (error) => vscode.window.showErrorMessage(`Failed to hound search, reason: ${error}`)
-        );
-    });
-    // not the best spot to register this
-    const refreshDisposable = vscode.commands.registerCommand('extension.refreshLocalProjects', () => {
-        refreshLocalProjects().then(() => vscode.window.showInformationMessage('Refresh Complete'));
-    });
+function getConfigGroup() {
+    return vscode.workspace.getConfiguration(CONFIG_GROUP);
+}
+function getConfig<T>(name: string): T {
+    return getConfigGroup().get(name) as T;
+}
 
-    const providerRegistration = vscode.workspace.registerTextDocumentContentProvider(scheme, new Provider());
+function getExtensionConfig(): Promise<any> {
+
+    const launchersConfig = getConfig<LauncherConfig[]>('launchers');
+
+    if (launchersConfig === undefined) {
+        return Promise.reject('Launcher config not provided')
+    }
+
+    return Promise.all([
+        getOrPromptConfig('url', 'Hound API URL not configured, enter one to continue'),
+        getOrPromptConfig('localRepoRoots', 'No local repo root set, enter a directory to continue', (repoRoot) => [repoRoot]),
+        getOrPromptConfig('repoPattern', 'No repo pattern specified, enter one to continue'),
+        Promise.resolve(launchersConfig)
+    ]).then(
+        ([url, localRepoRoots, repoPattern, launchers]) => {
+            return {
+                url,
+                localRepoRoots,
+                repoPattern,
+                launchers
+            };
+        }
+        );
+}
+
+export function activate(context: vscode.ExtensionContext) {
+
+    let localReposPromise: Promise<RepoInfo[]>,
+        configPromise: Promise<any>; //fixme
+
+    configPromise = getExtensionConfig();
+    configPromise.catch((error) => vscode.window.showErrorMessage(error.message));
+
+    const refreshLocalProjects = () => {
+        return configPromise.then(
+            ({ localRepoRoots }) => {
+                localReposPromise = collectLocalRepos(localRepoRoots)
+            },
+            (error) => vscode.window.showErrorMessage(error)
+        );
+    }
+
+    refreshLocalProjects();
 
     context.subscriptions.push(
-        searchDisposable,
-        refreshDisposable,
-        providerRegistration
+
+        vscode.workspace.onDidChangeConfiguration(() => {
+            configPromise = getExtensionConfig();
+            configPromise.catch((error) => vscode.window.showErrorMessage(error.message));
+        }),
+
+        vscode.commands.registerCommand('extension.houndSearch', () => {
+            configPromise.then(({ url, localRepoRoots, repoPattern, launchers }) => {
+                return vscode.window.showInputBox({ prompt: "Enter a search term regex" }).then(
+                    (inputString) => {
+                        if (inputString === undefined || inputString.length === 0) {
+                            return Promise.resolve();
+                        } else {
+                            return processSearch(url, inputString, repoPattern, localReposPromise, localRepoRoots).then(
+                                (choice: { absPath: string; result: ResultInfo; } | undefined) => {
+                                    return choice === undefined ? Promise.resolve() : openResult(choice.absPath, choice.result, launchers);
+                                }
+                            );
+                        }
+                    }
+                );
+            }).then(
+                null,
+                (error) => vscode.window.showErrorMessage(error)
+                );
+        }),
+        vscode.commands.registerCommand('extension.refreshLocalProjects', () => {
+            refreshLocalProjects().then(() => vscode.window.showInformationMessage('Refresh Complete'));
+        }),
     );
 
 }
@@ -160,42 +221,17 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {
 }
 
-
-
-function selectResult(baseUrl: string, searchText: string): Promise<ResultInfo | undefined> {
+function selectResult(baseUrl: string, searchText: string): Promise<ResultInfoSelections | undefined> {
     return fetchResults(baseUrl, searchText)
-        .then((selections) => {
-
-            const channel = vscode.window.createOutputChannel('Hound Results Preview');
-            channel.appendLine('Make a selection');
-            channel.show(true);
-
-            let lastSelection = undefined;
-            return vscode.window.showQuickPick(selections, {
-
-                onDidSelectItem: (selection: any) => {
-                    if (lastSelection !== selection) {
-                        const namespaceString = selection.namespace === undefined ? '' : selection.namespace,
-                            nameWithNamespace = namespaceString + (namespaceString.length === 0 ? '' : ' / ') + selection.name,
-                            title = nameWithNamespace + ' - ' + selection.fileName;
-                        channel.clear();
-                        channel.appendLine(title);
-                        channel.appendLine('-'.repeat(title.length));
-                        channel.appendLine(selection.before.join('\r\n'));
-
-                        channel.appendLine('>>');
-                        channel.appendLine(selection.line);
-                        channel.appendLine('>>');
-                        channel.appendLine(selection.after.join('\r\n'));
-                        lastSelection = selection;
-                    }
-                }
+        .then((selections: ResultInfoSelections[]) => {
+            const resultsPreview = openResultPreview();
+            return vscode.window.showQuickPick<ResultInfoSelections>(selections, {
+                placeHolder: 'Navigate to preview results, or select to launch',
+                onDidSelectItem: (resultInfo) => resultsPreview.setSelection(resultInfo as any)
             }).then((selection) => {
-                channel.hide();
-                channel.dispose();
+                resultsPreview.terminate();
                 return selection;
             });
-
         });
 }
 

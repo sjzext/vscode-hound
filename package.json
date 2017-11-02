@@ -11,7 +11,8 @@
         "Other"
     ],
     "activationEvents": [
-        "onCommand:extension.houndSearch"
+        "onCommand:extension.houndSearch",
+        "onCommand:extension.refreshLocalProjects"
     ],
     "main": "./out/extension",
     "contributes": {
@@ -19,9 +20,9 @@
             "type": "object",
             "title": "Hound Configuration",
             "properties": {
-                "type": "object",
                 "hound.url": {
-                    "type": "string",
+                    "type": ["string", null],
+                    "default": null,
                     "description": "Base url including port for hound instance"
                 },
                 "hound.repoPattern": {
@@ -40,11 +41,7 @@
                     "default": [
                         {
                             "name": "VS Code",
-                            "matchers": [
-                                {
-                                    "containsFile": "package.json"
-                                }
-                            ],
+                            "matchers": [],
                             "launch": "code ${folder} -g '${folder}/${fileName}:${lineNumber}'"
                         }
                     ],
@@ -95,11 +92,11 @@
         "commands": [
             {
                 "command": "extension.houndSearch",
-                "title": "Hound Search"
+                "title": "Hound: Search"
             },
             {
                 "command": "extension.refreshLocalProjects",
-                "title": "Hound Refresh Local Projects"
+                "title": "Hound: Refresh Local Projects"
             }
         ]
     },

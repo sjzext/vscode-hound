@@ -31,23 +31,22 @@ export function runLauncher(launchCmd: string, dir: string, fileName: string, li
 }
 
 export function launcherMatches(dir: string, result: ResultInfo, config: LauncherConfig) {
-    for (let i = 0; i < config.matchers.length; i++) {
-        let matcherConfig = config.matchers[i];
-        const matchers = Object.keys(matcherConfig)
-            .map((matcherKey) => createMatcher(matcherKey, matcherConfig[matcherKey]))
-            .filter((matcher) => matcher !== undefined);
-        if (matchers.length === 0) {
-            return true;
-        } else {
+    const matcherConfigs = config.matchers;
+    if (config.matchers.length === 0) {
+        return true;
+    } else {
+        for (let i = 0; i < matcherConfigs.length; i++) {
+            let matcherConfig = matcherConfigs[i];
+            const matchers = Object.keys(matcherConfig)
+                .map((matcherKey) => createMatcher(matcherKey, matcherConfig[matcherKey]))
+                .filter((matcher) => matcher !== undefined);
             for (let i = 0; i < matchers.length; i++) {
                 if (matchers[i](dir, result)) {
                     return true;
                 }
             }
-            return false;
         }
     }
-    return false;
 }
 
 function createMatcher(matcherKey: string, matcherValue: string) {
@@ -63,7 +62,7 @@ const MATCHERS = {
     },
     nameMatchesRegex: (nameRe: string) => {
         const re = new RegExp(nameRe);
-        return (dir: string, result: ResultInfo) => re.exec(result.name) !== null;
+        return (dir: string, result: ResultInfo) => re.exec(result.repoName) !== null;
     },
     hasExtension: (extension: string) => {
         return (dir: string, result: ResultInfo) => result.fileName.endsWith(`.${extension}`);
