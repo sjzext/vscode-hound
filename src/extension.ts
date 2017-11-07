@@ -10,6 +10,7 @@ import { openResultPreview } from './preview';
 import { clone, collectLocalRepos, RepoInfo } from './repos';
 import { ResultInfo } from './ResultInfo';
 import { confirm } from './util';
+import * as path from 'path';
 
 function openResult(dir: string, result: ResultInfo, launchers: LauncherConfig[]): Thenable<void> {
     const applicableLaunchers = launchers.filter(
@@ -71,7 +72,7 @@ function processSearch(baseUrl: string, searchText: string, repoPattern: string,
                                 return Promise.resolve(undefined);
                             } else {
                                 return clone(root, cloneAddress).then(() => {
-                                    const absPath = `${root}/${result.repoName}`;
+                                    const absPath = path.join(root, result.repoName);
                                     localReposPromise = Promise.resolve(localRepos.concat([{ absPath, name: result.repoName, repo: cloneAddress }]));
                                     return Promise.resolve({ absPath, result });
                                 });

@@ -4,6 +4,7 @@
     "description": "Search and launch for hound",
     "version": "0.0.1",
     "publisher": "sjzext",
+    "icon": "img/hound.png",
     "engines": {
         "vscode": "^1.17.0"
     },
