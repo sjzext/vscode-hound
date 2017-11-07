@@ -2,7 +2,7 @@
     "name": "hound-search",
     "displayName": "Hound Search",
     "description": "Search and launch for hound",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "publisher": "sjzext",
     "icon": "img/hound.png",
     "engines": {
