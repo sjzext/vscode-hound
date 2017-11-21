@@ -1,6 +1,8 @@
 # Change Log
 
 ## [Unreleased]
+## [0.0.5]
+- Demo gif.
 ## [0.0.4]
 - Moved to github
 ## [0.0.3]

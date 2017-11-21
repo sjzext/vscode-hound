@@ -9,6 +9,8 @@ Provides a [Hound](https://github.com/etsy/hound) search client that on selectio
 * prompts to clone repos that do not exist locally
 * launches search results in the program of your choice
 
+![Demo](img/demo.gif)
+
 ## Available Commands
 
 * **Hound: Search:** Launch the searcher
